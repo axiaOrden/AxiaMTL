@@ -29,7 +29,9 @@ def build_epub(input_dir, output_path, title, author, language='en'):
             content = f.read()
 
         c = epub.EpubHtml(title=chapter_title, file_name=f'chap_{i+1}.xhtml', lang=language)
-        c.content = f"<h1>{chapter_title}</h1><p>{content.replace('\n', '<br/>')}</p>"
+        converted_content = content.replace('\n', '<br/>')
+        c.content = f"<h1>{chapter_title}</h1><p>{converted_content}</p>"
+
 
         book.add_item(c)
         chapters.append(c)

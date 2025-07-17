@@ -34,24 +34,35 @@ def convert_to_utf8(input_path):
 def get_lang_pair(lang_str):
     try:
         src_code, tgt_code = lang_str.split(":")
-        return LANG_MAP[src_code], LANG_MAP[tgt_code], tgt_code
+        return LANG_MAP[src_code], LANG_MAP[tgt_code]
     except:
         raise ValueError("Invalid language pair. Use format like 'ja:en', 'ko:en'")
 
 def is_meaningful(text):
-    # Skip text with no Kanji, Kana, or Hangul (punctuation-only or broken quote)
     return re.search(r'[ぁ-んァ-ン一-龯가-힣]', text) is not None
 
 def clean_paragraph(text):
-    # Normalize standalone quotes or ellipses
     text = text.strip()
     text = re.sub(r'^[「『（〈《]*$', '', text)
     text = re.sub(r'^[.…。]+$', '', text)
     text = re.sub(r'^\W+$', '', text)
     return text.strip()
 
-async def translate_file(input_path, output_path, src_lang, tgt_lang):
+def sanitize_filename(name):
+    return re.sub(r'[\\/:*?"<>|]', '', name).strip()
+
+async def translate_file(input_path, output_path, src_lang, tgt_lang, original_name=None, return_translated_title=False):
     translator = Pentago(src_lang, tgt_lang)
+    stem = os.path.splitext(original_name or os.path.basename(input_path))[0]
+    title_part = "-".join(stem.split("-")[1:]) if "-" in stem else stem
+
+    try:
+        title_result = await translator.translate(title_part)
+        translated_title = title_result["translatedText"]
+        print(f"📘 Title translated: {title_part} → {translated_title}")
+    except Exception as e:
+        translated_title = title_part
+        print(f"📘 Title fallback (error): {e}")
 
     with open(input_path, "r", encoding="utf-8") as f:
         content = f.read()
@@ -63,36 +74,35 @@ async def translate_file(input_path, output_path, src_lang, tgt_lang):
         for i, paragraph in enumerate(paragraphs):
             attempt = 0
             success = False
-
             while attempt < 3 and not success:
                 try:
                     result = await translator.translate(paragraph)
-                    if not result or "translatedText" not in result:
+                    translated = result.get("translatedText", "")
+                    if not translated:
                         raise ValueError("Empty or malformed result")
-
-                    translated = result["translatedText"]
                     out.write(translated + "\n\n")
                     print(f"[{i+1}] ✅ {paragraph[:30]} → {translated[:30]}")
                     success = True
-
                 except Exception as e:
                     attempt += 1
                     if attempt < 3:
                         print(f"[{i+1}] ⚠️ Retry {attempt}/3 for: {paragraph[:30]}...")
-                        await asyncio.sleep(0.5)  # Small delay before retry
+                        await asyncio.sleep(0.5)
                     else:
-                        out.write("[Translation failed]\n")
-                        out.write(paragraph + "\n\n")
+                        out.write("[Translation failed]\n" + paragraph + "\n\n")
                         print(f"[{i+1}] ❌ Failed after 3 tries — [{paragraph[:30]}...] Error: {e}")
 
-def get_text_files(directory):
-    return [os.path.join(directory, f) for f in os.listdir(directory)
-            if os.path.isfile(os.path.join(directory, f)) and f.lower().endswith(".txt")]
+    if return_translated_title:
+        return translated_title
 
-def get_output_path(input_path, out_folder, tgt_suffix):
-    base_name = os.path.splitext(os.path.basename(input_path))[0]
-    return os.path.join(out_folder, f"{base_name}.{tgt_suffix}.txt")
-    
+
+def get_text_files(directory):
+    return sorted([
+        os.path.join(directory, f)
+        for f in os.listdir(directory)
+        if os.path.isfile(os.path.join(directory, f)) and f.lower().endswith(".txt")
+    ])
+
 def main():
     parser = argparse.ArgumentParser(description="Multi-language paragraph translation using PentaGo.")
     input_group = parser.add_mutually_exclusive_group(required=True)
@@ -104,7 +114,7 @@ def main():
     parser.add_argument("-epub", "--epub", action="store_true")
     args = parser.parse_args()
 
-    src_lang, tgt_lang, tgt_suffix = get_lang_pair(args.language)
+    src_lang, tgt_lang = get_lang_pair(args.language)
     os.makedirs(args.folder, exist_ok=True)
 
     if args.dir:
@@ -112,18 +122,39 @@ def main():
         print(f"[+] Found {len(input_files)} files in '{args.dir}' to translate.")
         for file_path in input_files:
             input_file = convert_to_utf8(file_path) if args.utf8 else file_path
-            output_path = get_output_path(file_path, args.folder, tgt_suffix)
-            print(f"→ Translating {file_path} → {output_path}")
-            asyncio.run(translate_file(input_file, output_path, src_lang, tgt_lang))
+
+            translated_title = asyncio.run(
+                translate_file(input_file, "TEMP.txt", src_lang, tgt_lang,
+                               original_name=os.path.basename(file_path),
+                               return_translated_title=True)
+            )
+
+            stem = os.path.splitext(os.path.basename(file_path))[0]
+            prefix = stem.split("-")[0] if "-" in stem else "0000"
+
+            safe_title = sanitize_filename(translated_title)
+            final_filename = f"{prefix}-{safe_title}.txt"
+            final_path = os.path.join(args.folder, final_filename)
+
+            os.rename("TEMP.txt", final_path)
+            print(f"✔️ Saved as: {final_filename}")
 
     elif args.input:
         input_path = convert_to_utf8(args.input) if args.utf8 else args.input
-        output_path = get_output_path(args.input, args.folder, tgt_suffix)
-        print(f"→ Translating {args.input} → {output_path}")
-        asyncio.run(translate_file(input_path, output_path, src_lang, tgt_lang))
+        translated_title = asyncio.run(
+            translate_file(input_path, "TEMP.txt", src_lang, tgt_lang,
+                           original_name=os.path.basename(input_path),
+                           return_translated_title=True)
+        )
+        stem = os.path.splitext(os.path.basename(args.input))[0]
+        prefix = stem.split("-")[0] if "-" in stem else "0000"
 
-    else:
-        print("[!] Please provide either --input or --dir")
+        safe_title = sanitize_filename(translated_title)
+        final_filename = f"{prefix}-{safe_title}.txt"
+        final_path = os.path.join(args.folder, final_filename)
+
+        os.rename("TEMP.txt", final_path)
+        print(f"✔️ Saved as: {final_filename}")
 
 if __name__ == "__main__":
     main()
