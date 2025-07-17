@@ -1,0 +1,4 @@
+chardet
+ebooklib
+httpx
+pentago @ git+https://github.com/sokcuri/pentago.git
