@@ -6,10 +6,13 @@ from ebooklib import epub
 def get_text_files(directory):
     files = [
         f for f in os.listdir(directory)
-        if f.lower().endswith('.txt') and os.path.isfile(os.path.join(directory, f))
+        if f.lower().endswith('.txt')
+        and not f.lower().endswith('.pre.txt')  # Exclude prefiles
+        and os.path.isfile(os.path.join(directory, f))
     ]
     # Sort naturally: "2.txt" before "10.txt"
     return sorted(files, key=lambda x: [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', x)])
+
 
 def build_epub(input_dir, output_path, title, author, language='en'):
     book = epub.EpubBook()

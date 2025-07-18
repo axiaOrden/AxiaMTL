@@ -2,4 +2,8 @@ chardet
 ebooklib
 httpx
 requests
-pip install -U "git+https://github.com/axiaOrden/PentaGo.git"
+kss
+nltk
+tinysegmenter
+nagisa
+git+https://github.com/axiaOrden/PentaGo.git
